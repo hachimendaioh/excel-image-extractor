@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>Excel 画像抽出ツール</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Zen+Kaku+Gothic+New:wght@300;400;700&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0f0f0f; --surface: #1a1a1a; --surface2: #222; --border: #2a2a2a;
+    --accent: #e8ff00; --accent2: #00ffb3; --text: #e8e8e8; --muted: #555; --muted2: #888;
+    --font-mono: 'DM Mono', monospace; --font-jp: 'Zen Kaku Gothic New', sans-serif;
+  }
+  body { background: var(--bg); color: var(--text); font-family: var(--font-jp); min-height: 100vh; display: flex; flex-direction: column; }
+
+  header { padding: 18px 32px; border-bottom: 1px solid var(--border); display: flex; align-items: baseline; gap: 16px; }
+  header h1 { font-family: var(--font-mono); font-size: 0.85rem; font-weight: 500; color: var(--accent); letter-spacing: 0.05em; }
+  header p { font-size: 0.72rem; color: var(--muted); }
+
+  /* ── Drop ── */
+  .drop-section { flex: 1; display: flex; align-items: center; justify-content: center; padding: 48px 32px; }
+  .dropzone { width: 100%; max-width: 560px; border: 1.5px dashed var(--border); border-radius: 4px; padding: 64px 40px; text-align: center; cursor: pointer; transition: all 0.2s; position: relative; background: var(--surface); }
+  .dropzone:hover, .dropzone.dragover { border-color: var(--accent); background: #1e1e0a; }
+  .dropzone input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+  .drop-icon { font-size: 2.5rem; margin-bottom: 20px; display: block; }
+  .drop-title { font-family: var(--font-mono); font-size: 0.9rem; color: var(--accent); margin-bottom: 8px; letter-spacing: 0.08em; }
+  .drop-sub { font-size: 0.72rem; color: var(--muted); line-height: 1.8; }
+  .drop-formats { margin-top: 16px; display: flex; gap: 8px; justify-content: center; }
+  .fmt-tag { font-family: var(--font-mono); font-size: 0.65rem; padding: 3px 10px; border: 1px solid var(--border); color: var(--muted); border-radius: 2px; }
+
+  /* ── Processing ── */
+  .processing { display: none; flex-direction: column; align-items: center; justify-content: center; flex: 1; gap: 16px; padding: 48px; }
+  .processing.show { display: flex; }
+  .spinner { width: 36px; height: 36px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .proc-text { font-family: var(--font-mono); font-size: 0.8rem; color: var(--muted); text-align: center; line-height: 2; }
+
+  /* ── Result ── */
+  .result-section { display: none; flex: 1; flex-direction: column; overflow: hidden; }
+  .result-section.show { display: flex; }
+
+  .result-bar { padding: 12px 24px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px; flex-shrink: 0; flex-wrap: wrap; }
+  .result-count { font-family: var(--font-mono); font-size: 0.8rem; color: var(--accent); }
+  .result-filename { font-size: 0.7rem; color: var(--muted); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+
+  /* プレフィックス入力 */
+  .prefix-wrap { display: flex; align-items: center; gap: 6px; background: var(--surface2); border: 1px solid var(--border); border-radius: 2px; padding: 0 10px; transition: border-color 0.15s; }
+  .prefix-wrap:focus-within { border-color: var(--accent); }
+  .prefix-label { font-family: var(--font-mono); font-size: 0.6rem; color: var(--muted); white-space: nowrap; }
+  .prefix-input { background: transparent; border: none; color: var(--accent); font-family: var(--font-mono); font-size: 0.75rem; width: 150px; padding: 6px 0; outline: none; }
+  .prefix-input::placeholder { color: var(--muted); font-size: 0.7rem; }
+
+  .btn { font-family: var(--font-mono); font-size: 0.72rem; padding: 7px 14px; cursor: pointer; border-radius: 2px; letter-spacing: 0.05em; transition: all 0.15s; border: none; white-space: nowrap; }
+  .btn-primary { background: var(--accent); color: #0f0f0f; }
+  .btn-primary:hover { background: #fff000; }
+  .btn-ghost { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+  .btn-ghost:hover { color: var(--text); border-color: var(--muted); }
+
+  /* ── Grid ── */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 1px; background: var(--border); flex: 1; overflow-y: auto; }
+
+  .card { background: var(--surface); display: flex; flex-direction: column; transition: background 0.15s; }
+  .card:hover { background: var(--surface2); }
+
+  .card-img-wrap { aspect-ratio: 4/3; overflow: hidden; display: flex; align-items: center; justify-content: center; background: #0a0a0a; position: relative; }
+  .card-img-wrap img { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
+  .img-num { position: absolute; top: 6px; left: 6px; background: rgba(0,0,0,0.7); color: var(--muted2); font-family: var(--font-mono); font-size: 0.6rem; padding: 2px 6px; border-radius: 2px; }
+
+  .card-body { padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--border); }
+
+  /* ファイル名インライン編集 */
+  .filename-edit-wrap { display: flex; align-items: center; gap: 0; border: 1px solid var(--border); border-radius: 2px; overflow: hidden; transition: border-color 0.15s; }
+  .filename-edit-wrap:focus-within { border-color: var(--accent2); }
+  .filename-prefix-preview { font-family: var(--font-mono); font-size: 0.65rem; color: var(--accent); padding: 5px 0 5px 8px; background: #111; white-space: nowrap; max-width: 80px; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; }
+  .filename-prefix-preview:empty { display: none; }
+  .filename-input { flex: 1; background: #111; border: none; color: var(--text); font-family: var(--font-mono); font-size: 0.65rem; padding: 5px 6px; outline: none; min-width: 0; }
+  .filename-input:focus { color: var(--accent2); }
+  .filename-ext { font-family: var(--font-mono); font-size: 0.65rem; color: var(--muted); padding: 5px 8px 5px 0; background: #111; flex-shrink: 0; }
+
+  /* アクション行 */
+  .card-actions { display: flex; gap: 6px; }
+  .btn-sm { font-family: var(--font-mono); font-size: 0.62rem; padding: 5px 10px; cursor: pointer; border-radius: 2px; transition: all 0.15s; border: none; flex: 1; text-align: center; }
+  .btn-sm-dl { background: var(--accent); color: #0f0f0f; }
+  .btn-sm-dl:hover { background: #fff000; }
+  .btn-sm-copy { background: transparent; border: 1px solid var(--border); color: var(--muted); }
+  .btn-sm-copy:hover { border-color: var(--muted); color: var(--text); }
+  .btn-sm-copy.copied { border-color: var(--accent2); color: var(--accent2); }
+
+  /* ── Error ── */
+  .error-msg { display: none; margin: 24px 32px 0; padding: 12px 16px; background: #2a1010; border: 1px solid #5a2020; border-radius: 2px; font-size: 0.75rem; color: #e87070; font-family: var(--font-mono); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>EXCEL IMAGE EXTRACTOR</h1>
+  <p>画像抽出 + ファイル名編集</p>
+</header>
+
+<div class="drop-section" id="dropSection">
+  <div class="dropzone" id="dropzone">
+    <input type="file" id="fileInput" accept=".xls,.xlsx,.xlsm">
+    <span class="drop-icon">⬚</span>
+    <div class="drop-title">ファイルをドロップ</div>
+    <div class="drop-sub">またはクリックして選択</div>
+    <div class="drop-formats">
+      <span class="fmt-tag">.xlsx</span>
+      <span class="fmt-tag">.xls</span>
+      <span class="fmt-tag">.xlsm</span>
+    </div>
+  </div>
+</div>
+
+<div class="processing" id="processing">
+  <div class="spinner"></div>
+  <div class="proc-text" id="procText">解析中...</div>
+</div>
+<div class="error-msg" id="errorMsg"></div>
+
+<div class="result-section" id="resultSection">
+  <div class="result-bar">
+    <span class="result-count" id="resultCount"></span>
+    <span class="result-filename" id="resultFilename"></span>
+    <div class="prefix-wrap">
+      <span class="prefix-label">PREFIX</span>
+      <input class="prefix-input" id="prefixInput" type="text" placeholder="例: 2026" oninput="onPrefixChange()">
+    </div>
+    <button class="btn btn-primary" id="btnDownloadAll">↓ すべて保存（ZIP）</button>
+    <button class="btn btn-ghost" id="btnReset">← 別のファイル</button>
+  </div>
+  <div class="grid" id="grid"></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script>
+// ══════════════════════════════════════════════════════
+//  OLE2 パーサー
+// ══════════════════════════════════════════════════════
+function parseOLE2(buf) {
+  const u8 = new Uint8Array(buf);
+  const dv = new DataView(buf);
+  const SIG = [0xD0,0xCF,0x11,0xE0,0xA1,0xB1,0x1A,0xE1];
+  for (let i = 0; i < 8; i++) if (u8[i] !== SIG[i]) return null;
+
+  const sectorSize = 1 << dv.getUint16(30, true);
+  const firstDir   = dv.getUint32(48, true);
+  const ENDOFCHAIN = 0xFFFFFFFE, FREESECT = 0xFFFFFFFF;
+
+  const fat = [];
+  for (let i = 0; i < 109; i++) {
+    const sid = dv.getUint32(76 + i * 4, true);
+    if (sid === FREESECT || sid === ENDOFCHAIN) break;
+    const off = 512 + sid * sectorSize;
+    for (let j = 0; j < sectorSize / 4; j++) fat.push(dv.getUint32(off + j * 4, true));
+  }
+
+  function readStream(startSid, maxBytes) {
+    const parts = []; let sid = startSid, total = 0;
+    while (sid !== ENDOFCHAIN && sid < fat.length) {
+      parts.push(u8.slice(512 + sid * sectorSize, 512 + (sid + 1) * sectorSize));
+      total += sectorSize;
+      sid = fat[sid];
+    }
+    const out = new Uint8Array(total); let p = 0;
+    for (const c of parts) { out.set(c, p); p += c.length; }
+    return maxBytes ? out.slice(0, maxBytes) : out;
+  }
+
+  const dir = readStream(firstDir);
+  const ddv = new DataView(dir.buffer, dir.byteOffset, dir.byteLength);
+  for (let i = 0; i < dir.length / 128; i++) {
+    const base = i * 128;
+    const nl   = ddv.getUint16(base + 64, true);
+    if (nl < 2) continue;
+    let name = '';
+    for (let c = 0; c < (nl - 2) / 2; c++) name += String.fromCharCode(ddv.getUint16(base + c * 2, true));
+    if (dir[base + 66] === 2 && (name === 'Workbook' || name === 'Book'))
+      return readStream(ddv.getUint32(base + 116, true), ddv.getUint32(base + 120, true));
+  }
+  return null;
+}
+
+// ══════════════════════════════════════════════════════
+//  BIFF8 → Escher ストリーム（画像データ）
+// ══════════════════════════════════════════════════════
+function extractEscherFromBIFF8(wb) {
+  const dv = new DataView(wb.buffer, wb.byteOffset, wb.byteLength);
+  let pos = 0;
+  const parts = [];
+  let collecting = false;
+  while (pos + 4 <= wb.length) {
+    const rid  = dv.getUint16(pos, true);
+    const rlen = dv.getUint16(pos + 2, true);
+    const data = wb.slice(pos + 4, pos + 4 + rlen);
+    if (rid === 0x00EB)                    { parts.push(data); collecting = true; }
+    else if (rid === 0x003C && collecting) { parts.push(data); }
+    else                                   { collecting = false; }
+    pos += 4 + rlen;
+  }
+  if (!parts.length) return null;
+  const total = parts.reduce((s, p) => s + p.length, 0);
+  const out = new Uint8Array(total); let p = 0;
+  for (const part of parts) { out.set(part, p); p += part.length; }
+  return out;
+}
+
+// ══════════════════════════════════════════════════════
+//  画像スキャン（PNG / JPEG / GIF）
+// ══════════════════════════════════════════════════════
+const PNG_SIG   = new Uint8Array([0x89,0x50,0x4E,0x47,0x0D,0x0A,0x1A,0x0A]);
+const IEND_SIG  = new Uint8Array([0x49,0x45,0x4E,0x44,0xAE,0x42,0x60,0x82]);
+const JPEG_SIG  = new Uint8Array([0xFF,0xD8,0xFF]);
+const JPEG_END  = new Uint8Array([0xFF,0xD9]);
+const GIF87_SIG = new Uint8Array([0x47,0x49,0x46,0x38,0x37,0x61]);
+const GIF89_SIG = new Uint8Array([0x47,0x49,0x46,0x38,0x39,0x61]);
+
+function matchAt(u8, pos, sig) {
+  if (pos + sig.length > u8.length) return false;
+  for (let i = 0; i < sig.length; i++) if (u8[pos + i] !== sig[i]) return false;
+  return true;
+}
+function findSig(u8, sig, from) {
+  const first = sig[0];
+  for (let i = from; i <= u8.length - sig.length; i++)
+    if (u8[i] === first && matchAt(u8, i, sig)) return i;
+  return -1;
+}
+async function scanImages(u8, onProgress) {
+  const images = []; let count = 0, pos = 0;
+  let lastYield = Date.now();
+  while (pos < u8.length) {
+    if (Date.now() - lastYield > 60) {
+      onProgress(Math.round(pos / u8.length * 100), images.length);
+      await new Promise(r => setTimeout(r, 0));
+      lastYield = Date.now();
+    }
+    const b = u8[pos];
+    if (b === 0x89 && matchAt(u8, pos, PNG_SIG)) {
+      const end = findSig(u8, IEND_SIG, pos + 8);
+      if (end !== -1) { const s = u8.slice(pos, end + 8); if (s.length > 512) images.push({ name: `image_${++count}.png`, data: s, mime: 'image/png' }); pos = end + 8; continue; }
+    }
+    if (b === 0xFF && matchAt(u8, pos, JPEG_SIG)) {
+      const end = findSig(u8, JPEG_END, pos + 3);
+      if (end !== -1) { const s = u8.slice(pos, end + 2); if (s.length > 1024) images.push({ name: `image_${++count}.jpg`, data: s, mime: 'image/jpeg' }); pos = end + 2; continue; }
+    }
+    if (b === 0x47 && (matchAt(u8, pos, GIF87_SIG) || matchAt(u8, pos, GIF89_SIG))) {
+      const end = u8.indexOf(0x3B, pos + 6);
+      if (end !== -1) { const s = u8.slice(pos, end + 1); if (s.length > 512) images.push({ name: `image_${++count}.gif`, data: s, mime: 'image/gif' }); pos = end + 1; continue; }
+    }
+    pos++;
+  }
+  return images;
+}
+
+// ══════════════════════════════════════════════════════
+//  UI
+// ══════════════════════════════════════════════════════
+const dropzone  = document.getElementById('dropzone');
+const fileInput = document.getElementById('fileInput');
+dropzone.addEventListener('dragover',  e => { e.preventDefault(); dropzone.classList.add('dragover'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+dropzone.addEventListener('drop', e => { e.preventDefault(); dropzone.classList.remove('dragover'); if (e.dataTransfer.files[0]) processFile(e.dataTransfer.files[0]); });
+fileInput.addEventListener('change', e => { if (e.target.files[0]) processFile(e.target.files[0]); });
+
+function showState(state) {
+  document.getElementById('dropSection').style.display   = state === 'drop'       ? 'flex' : 'none';
+  document.getElementById('processing').style.display    = state === 'processing' ? 'flex' : 'none';
+  document.getElementById('resultSection').style.display = state === 'result'     ? 'flex' : 'none';
+  document.getElementById('errorMsg').style.display = 'none';
+}
+function setProc(msg) { document.getElementById('procText').textContent = msg; }
+function showError(msg) {
+  showState('drop');
+  const el = document.getElementById('errorMsg');
+  el.textContent = '⚠ ' + msg; el.style.display = 'block';
+}
+
+// ══════════════════════════════════════════════════════
+//  メイン処理
+// ══════════════════════════════════════════════════════
+async function processFile(file) {
+  showState('processing');
+  setProc('読み込み中...\n' + file.name);
+  const images = [];
+
+  try {
+    const buf = await file.arrayBuffer();
+    const u8  = new Uint8Array(buf);
+    const isZIP  = u8[0] === 0x50 && u8[1] === 0x4B;
+    const isOLE2 = [0xD0,0xCF,0x11,0xE0,0xA1,0xB1,0x1A,0xE1].every((b, i) => u8[i] === b);
+
+    if (isZIP) {
+      setProc('ZIP形式として解析中...');
+      await new Promise(r => setTimeout(r, 10));
+      const zip = await JSZip.loadAsync(buf);
+      const mediaFiles = Object.keys(zip.files).filter(p =>
+        p.startsWith('xl/media/') && /\.(png|jpe?g|gif|bmp|webp)$/i.test(p)
+      );
+      for (const path of mediaFiles) {
+        const data = await zip.files[path].async('uint8array');
+        const ext  = path.split('.').pop().toLowerCase();
+        const mime = ({png:'image/png',jpg:'image/jpeg',jpeg:'image/jpeg',gif:'image/gif',bmp:'image/bmp',webp:'image/webp'})[ext] || 'image/png';
+        images.push({ name: path.split('/').pop(), data, mime });
+      }
+    } else if (isOLE2) {
+      setProc('OLE2解析中...');
+      await new Promise(r => setTimeout(r, 10));
+      const wb = parseOLE2(buf);
+      if (wb) {
+        setProc('BIFF8解析中...');
+        await new Promise(r => setTimeout(r, 10));
+        const escher = extractEscherFromBIFF8(wb);
+        if (escher) {
+          const found = await scanImages(escher, (pct, cnt) => setProc(`スキャン中... ${pct}%\n${cnt}件発見`));
+          images.push(...found);
+        }
+      }
+    }
+
+    if (images.length === 0) {
+      showError('画像が見つかりませんでした。このファイルには埋め込み画像がないか、対応していない形式です。');
+      return;
+    }
+    renderResults(file.name, images);
+
+  } catch (e) {
+    showError('読み込み失敗: ' + e.message);
+    console.error(e);
+  }
+}
+
+// ══════════════════════════════════════════════════════
+//  結果レンダリング
+// ══════════════════════════════════════════════════════
+let _images = [];
+
+function renderResults(filename, images) {
+  _images = images;
+  document.getElementById('resultCount').textContent    = `${images.length} 件の画像`;
+  document.getElementById('resultFilename').textContent = filename;
+
+  const grid = document.getElementById('grid');
+  grid.innerHTML = '';
+
+  images.forEach((img, idx) => {
+    const url = URL.createObjectURL(new Blob([img.data], { type: img.mime }));
+    const ext = ({'image/png':'png','image/jpeg':'jpg','image/gif':'gif','image/bmp':'bmp','image/webp':'webp'})[img.mime] || 'png';
+    // 拡張子を除いたベース名（初期値）
+    const baseName = img.name.replace(/\.[^.]+$/, '');
+
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = `
+      <div class="card-img-wrap">
+        <span class="img-num">#${idx + 1}</span>
+        <img src="${url}" alt="${img.name}" loading="lazy">
+      </div>
+      <div class="card-body">
+        <div class="filename-edit-wrap">
+          <span class="filename-prefix-preview" id="pprev-${idx}"></span>
+          <input class="filename-input" id="finput-${idx}" type="text" value="${escHtml(baseName)}" spellcheck="false">
+          <span class="filename-ext">.${ext}</span>
+        </div>
+        <div class="card-actions">
+          <button class="btn-sm btn-sm-dl" onclick="downloadOne(${idx})">↓ 保存</button>
+          <button class="btn-sm btn-sm-copy" id="cpbtn-${idx}" onclick="copyFilename(${idx})">名前をコピー</button>
+        </div>
+      </div>`;
+    grid.appendChild(card);
+  });
+
+  showState('result');
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ══════════════════════════════════════════════════════
+//  ファイル名ユーティリティ
+// ══════════════════════════════════════════════════════
+function getPrefix() {
+  const val = (document.getElementById('prefixInput')?.value || '').trim();
+  if (!val) return '';
+  return val.replace(/[\\/:*?"<>|]/g, '_') + '_';
+}
+
+function getFilename(idx) {
+  const input = document.getElementById(`finput-${idx}`);
+  const ext   = _images[idx].mime
+    ? ({'image/png':'png','image/jpeg':'jpg','image/gif':'gif','image/bmp':'bmp','image/webp':'webp'})[_images[idx].mime] || 'png'
+    : _images[idx].name.split('.').pop();
+  const base = (input?.value || '').trim().replace(/[\\/:*?"<>|]/g, '_') || `image_${idx + 1}`;
+  return getPrefix() + base + '.' + ext;
+}
+
+// プレフィックス変更 → 全カードのプレビュー更新
+function onPrefixChange() {
+  const prefix = getPrefix();
+  _images.forEach((_, idx) => {
+    const el = document.getElementById(`pprev-${idx}`);
+    if (el) el.textContent = prefix;
+  });
+}
+
+function downloadOne(idx) {
+  const img = _images[idx];
+  Object.assign(document.createElement('a'), {
+    href:     URL.createObjectURL(new Blob([img.data], { type: img.mime })),
+    download: getFilename(idx)
+  }).click();
+}
+
+function copyFilename(idx) {
+  navigator.clipboard.writeText(getFilename(idx)).then(() => {
+    const btn = document.getElementById(`cpbtn-${idx}`);
+    btn.textContent = 'コピー済 ✓';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = '名前をコピー'; btn.classList.remove('copied'); }, 1500);
+  });
+}
+
+document.getElementById('btnDownloadAll').addEventListener('click', async () => {
+  const zip = new JSZip();
+  _images.forEach((img, idx) => zip.file(getFilename(idx), img.data));
+  const blob = await zip.generateAsync({ type: 'blob' });
+  Object.assign(document.createElement('a'), {
+    href: URL.createObjectURL(blob), download: 'images.zip'
+  }).click();
+});
+
+document.getElementById('btnReset').addEventListener('click', () => {
+  _images = []; fileInput.value = '';
+  document.getElementById('prefixInput').value = '';
+  showState('drop');
+});
+</script>
+</body>
+</html>
